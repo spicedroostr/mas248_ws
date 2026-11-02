@@ -1,0 +1,119 @@
+<?xml version="1.0"?>
+<robot name="mas248_ur5e" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Main arguments -->
+  <xacro:arg name="ur_type" default="ur5e"/>
+  <xacro:arg name="tf_prefix" default=""/>
+  <xacro:arg name="robot_ip" default="0.0.0.0"/>
+  <xacro:arg name="safety_limits" default="true"/>
+  <xacro:arg name="name" default="ur"/>
+  <xacro:arg name="use_fake_hardware" default="true"/>
+
+  <!-- Vendor robot model (keep original package untouched) -->
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/> <!-- Here we define the original UR5e model from a driver -->
+
+
+<!-- TO BE DONE TODAY  beginning-->
+
+   <!-- Egne mål (meter) -->
+  <!-- Mål lest fra STL-filene (SolidWorks, mm, Y opp, origo i et hjørne) -->
+  <xacro:property name="pedestal_height" value="0.301"/>   <!-- pedestal.STL: 300 x 301 (Y) x 300 mm -->
+  <xacro:property name="pedestal_size" value="0.300"/>
+  <xacro:property name="tool_length" value="0.138"/>       <!-- spindle.STL: 46.5 x 138 (Y) x 46.5 mm -->
+  <xacro:property name="tool_diameter" value="0.0465"/>
+  <xacro:property name="mesh_scale" value="0.001 0.001 0.001"/>  <!-- STL er i mm -->
+  <xacro:property name="tool_changer_offset" value="0.000"/>
+  <xacro:property name="pen_axis_offset" value="0.094"/>
+
+  <link name="world"/>
+
+  <link name="pedestal_link">
+    <visual>
+      <!-- rpy: SolidWorks Y-opp -> ROS Z-opp. xyz: flytter hjørne-origo til midt under pedestalen -->
+      <origin xyz="${-pedestal_size/2} ${pedestal_size/2} 0" rpy="${pi/2} 0 0"/>
+      <geometry><mesh filename="package://mas248_ur5e/meshes/pedestal.STL" scale="${mesh_scale}"/></geometry>
+    </visual>
+    <collision>  <!-- enkel boks for MoveIt; tilpass størrelsen -->
+      <origin xyz="0 0 ${pedestal_height/2}" rpy="0 0 0"/>
+      <geometry><box size="${pedestal_size} ${pedestal_size} ${pedestal_height}"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="world_to_pedestal" type="fixed">
+    <parent link="world"/>
+    <child link="pedestal_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="spindle">
+    <visual>
+      <!-- rpy: SolidWorks Y-akse -> ut fra tool0 (Z). xyz: sentrerer verktøyet på flensen -->
+      <origin xyz="${-tool_diameter/2} ${tool_diameter/2} 0" rpy="${pi/2} 0 0"/>
+      <geometry><mesh filename="package://mas248_ur5e/meshes/spindle.STL" scale="${mesh_scale}"/></geometry>
+    </visual>
+    <collision>  <!-- enkel sylinder; tilpass radius -->
+      <origin xyz="0 0 ${tool_length/2}" rpy="0 0 0"/>
+      <geometry><cylinder radius="${tool_diameter/2}" length="${tool_length}"/></geometry>
+    </collision>
+  </link>
+
+  <link name="tcp"/>
+
+  <joint name="tool0_to_spindle" type="fixed">
+    <parent link="tool0"/>
+    <child link="spindle"/>
+    <origin xyz="0 ${pen_axis_offset} ${tool_changer_offset + tool_diameter/2}" rpy="${-pi/2} 0 ${-pi}"/>
+  </joint>
+
+  <joint name="spindle_to_tcp" type="fixed">
+    <parent link="spindle"/>
+    <child link="tcp"/>
+    <origin xyz="0 -0.040 0" rpy="${pi} 0 0"/>
+  </joint>
+
+<!-- TO BE DONE TODAY  The end -->
+
+  <!-- Instantiate UR robot -->
+  <xacro:ur_robot
+    name="$(arg name)"
+    ur_type="$(arg ur_type)"
+    tf_prefix="$(arg tf_prefix)"
+    parent="pedestal_link"
+    joint_limits_parameters_file="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"
+    kinematics_parameters_file="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"
+    physical_parameters_file="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"
+    visual_parameters_file="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"
+    safety_limits="$(arg safety_limits)"
+    safety_pos_margin="0.15"
+    safety_k_position="20"
+    generate_ros2_control_tag="false"
+    use_fake_hardware="$(arg use_fake_hardware)"
+    headless_mode="true"
+    robot_ip="$(arg robot_ip)"
+    script_filename=""
+    input_recipe_filename=""
+    output_recipe_filename=""
+  >
+    <!-- Mount the robot on top of the pedestal use right dimensions-->
+    <origin xyz="0 0 ${pedestal_height}" rpy="0 0 0"/>
+  </xacro:ur_robot>
+
+  <!-- Simple work table FOR FUN and LEARNING-->
+  <link name="table_link">
+    <visual>
+      <origin xyz="0.85 0 0.40" rpy="0 0 0"/>
+      <geometry><box size="1.20 0.80 0.05"/></geometry>
+      <material name="table"><color rgba="0.75 0.75 0.78 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0.85 0 0.40" rpy="0 0 0"/>
+      <geometry><box size="1.20 0.80 0.05"/></geometry>
+    </collision>
+  </link>
+  <joint name="world_to_table" type="fixed">
+    <parent link="world"/>
+    <child link="table_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>
