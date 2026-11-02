@@ -30,8 +30,8 @@ def common_module():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--robot-ip', default='192.168.1.101')
-    ap.add_argument('--reverse-ip', default='192.168.1.102')
+    ap.add_argument('--robot-ip', default='192.168.10.101')
+    ap.add_argument('--reverse-ip', default='192.168.10.102')
     ap.add_argument('--calibration', default=str(Path.home() / 'ur5e_calibration.yaml'))
     ap.add_argument('--controller', default='scaled_joint_trajectory_controller')
     ap.add_argument('--write-urdf', default='', help='Optional path to save the rendered URDF')

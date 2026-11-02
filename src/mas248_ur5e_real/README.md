@@ -51,12 +51,13 @@ Koble kabelen direkte fra PC-en til roboten. Finn navnet på kablet nettverkskor
 ip -br link
 ```
 
-Gi PC-en fast adresse 192.168.1.102 på det kortet (bytt `enp3s0` med deres navn):
+Gi PC-en fast adresse 192.168.10.102 på det kortet (bytt `enp3s0` med deres navn):
 
 ```bash
-sudo nmcli con add type ethernet ifname enp3s0 con-name ur5e ipv4.method manual ipv4.addresses 192.168.1.102/24
+sudo nmcli con add type ethernet ifname enp3s0 con-name ur5e ipv4.method manual ipv4.addresses 192.168.10.102/24
+# finnes profilen ur5e allerede: sudo nmcli con mod ur5e ipv4.addresses 192.168.10.102/24
 sudo nmcli con up ur5e
-ping -c 3 192.168.1.101
+ping -c 3 192.168.10.101
 ```
 
 Åpne portene driveren bruker (bare nødvendig hvis `ufw` er aktiv, sjekk med `sudo ufw status`):
@@ -69,8 +70,8 @@ sudo ufw allow 50001:50004/tcp
 
 ## 2. Pendanten
 
-1. Sjekk robotens IP under *Settings → System → Network*: statisk, 192.168.1.101, maske 255.255.255.0.
-2. Sjekk at URCap-en **External Control** er installert (*Settings → System → URCaps*). Under *Installation → URCaps → External Control*: Host IP **192.168.1.102**, port **50002**.
+1. Sjekk robotens IP under *Settings → System → Network*: statisk, 192.168.10.101, maske 255.255.255.0 (labroboten er satt slik; L10-slidene sier 192.168.1.101, men ikke endre roboten, tilpass PC-en).
+2. Sjekk at URCap-en **External Control** er installert (*Settings → System → URCaps*). Under *Installation → URCaps → External Control*: Host IP **192.168.10.102**, port **50002**.
 3. Lag (eller last inn) et program som bare inneholder noden *External Control*. Lagre det, for eksempel som `mas248_ros.urp`.
 4. Under *Installation → General → TCP/Payload*: sett payload til omtrent vekten av verktøyet (spindel og tusj). Feil payload gir unødvendige protective stops.
 5. Sett hastighetsslideren nederst på skjermen til **10–20 %**.
@@ -103,8 +104,8 @@ export ROS_DOMAIN_ID=57
 
 ```bash
 ros2 launch mas248_ur5e_real driver.launch.py \
-  robot_ip:=192.168.1.101 \
-  reverse_ip:=192.168.1.102 \
+  robot_ip:=192.168.10.101 \
+  reverse_ip:=192.168.10.102 \
   calibration:="$HOME/ur5e_calibration.yaml" \
   enable_execution:=false \
   acknowledge_hardware:=yes
@@ -116,8 +117,8 @@ Vent til loggen er rolig og kontrollerne er lastet. **Pendanten:** last inn `mas
 
 ```bash
 ros2 launch mas248_ur5e_real moveit_real.launch.py \
-  robot_ip:=192.168.1.101 \
-  reverse_ip:=192.168.1.102 \
+  robot_ip:=192.168.10.101 \
+  reverse_ip:=192.168.10.102 \
   calibration:="$HOME/ur5e_calibration.yaml" \
   enable_execution:=false \
   launch_rviz:=true
@@ -244,9 +245,9 @@ Gjør pumpkin først (L10 minimumseksperiment), deretter Ubuntu-logoen. Kjør sa
 
 | Symptom | Årsak og løsning |
 |---|---|
-| `ping 192.168.1.101` svarer ikke | Feil nettverkskort eller adresse. Sjekk `ip -br addr` (skal vise 192.168.1.102/24 på kablet kort), kabel og at roboten har 192.168.1.101. Slå av Wi-Fi hvis det også bruker 192.168.1.x. |
+| `ping 192.168.10.101` svarer ikke | Feil nettverkskort eller adresse. Sjekk `ip -br addr` (skal vise 192.168.10.102/24 på kablet kort), kabel og at roboten har 192.168.10.101. Slå av Wi-Fi hvis det også bruker 192.168.10.x. |
 | Fane 1 henger på `Connecting to ...` eller `Connection refused` | Roboten er ikke startet eller har feil IP. Pendanten må være forbi oppstartsbildet. |
-| Play på pendanten gir *"Could not connect to host"* / *socket error* | Host IP i External Control er ikke 192.168.1.102, port er ikke 50002, eller `ufw` blokkerer. Kjør `sudo ufw allow 50001:50004/tcp`. Start driveren **før** Play. |
+| Play på pendanten gir *"Could not connect to host"* / *socket error* | Host IP i External Control er ikke 192.168.10.102, port er ikke 50002, eller `ufw` blokkerer. Kjør `sudo ufw allow 50001:50004/tcp`. Start driveren **før** Play. |
 | `Connection to reverse interface dropped` | Programmet på pendanten er stoppet eller nettverket falt ut. Trykk Play igjen. |
 
 ### B. Driver og kontrollere
@@ -255,7 +256,7 @@ Gjør pumpkin først (L10 minimumseksperiment), deretter Ubuntu-logoen. Kjør sa
 |---|---|
 | `Explicit acknowledge_hardware:=yes required` | Glemt argumentet i fane 1. |
 | Feil om kalibrering / filen finnes ikke | Bruk full sti: `calibration:="$HOME/ur5e_calibration.yaml"`. |
-| `The calibration parameters of the connected robot don't match the ones from the given kinematics config file` | Kalibreringsfila er fra en annen robot. Lag en ny fra denne roboten: `ros2 launch ur_calibration calibration_correction.launch.py robot_ip:=192.168.1.101 target_filename:="$HOME/ur5e_calibration.yaml"`, bygg og start på nytt. |
+| `The calibration parameters of the connected robot don't match the ones from the given kinematics config file` | Kalibreringsfila er fra en annen robot. Lag en ny fra denne roboten: `ros2 launch ur_calibration calibration_correction.launch.py robot_ip:=192.168.10.101 target_filename:="$HOME/ur5e_calibration.yaml"`, bygg og start på nytt. |
 | Spawner timeout / `Could not contact service /controller_manager/...` | Gamle prosesser fra mock. Gjør punkt 3 (rydd opp) og start på nytt. |
 | `validate_stack`: `robot_program_running is not true` | Trykk Play på pendanten (etter at driveren kjører). |
 | `validate_stack --execution`: `scaled_joint_trajectory_controller active (state: inactive)` | Fane 1 ble startet med `enable_execution:=false`. Start på nytt med `true` (punkt 7). |
