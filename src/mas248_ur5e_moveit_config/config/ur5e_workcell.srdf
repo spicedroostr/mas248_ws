@@ -33,4 +33,10 @@
   <!-- Roboten staar oppaa pedestalen -->
   <disable_collisions link1="pedestal_link" link2="base_link_inertia" reason="Adjacent"/>
   <disable_collisions link1="pedestal_link" link2="shoulder_link" reason="Never"/>
+  <!-- Statiske deler (bord, virtuelle vegger, pedestal) beveger seg aldri i forhold til hverandre -->
+  <disable_collisions link1="table_link" link2="pedestal_link" reason="Never"/>
+  <disable_collisions link1="table_link" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="workspace_walls" link2="table_link" reason="Never"/>
+  <disable_collisions link1="workspace_walls" link2="pedestal_link" reason="Never"/>
+  <disable_collisions link1="workspace_walls" link2="base_link_inertia" reason="Never"/>
 </robot>

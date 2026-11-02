@@ -34,7 +34,11 @@ Visualization Manager:
     Value: true
   - Class: rviz_default_plugins/MarkerArray
     Name: MAS248 Image TCP Targets
-    Marker Topic:
+    Topic:
+      Depth: 100
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
       Value: /mas248/drawing_targets
     Queue Size: 100
     Value: true

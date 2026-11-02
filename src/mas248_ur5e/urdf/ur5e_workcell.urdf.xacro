@@ -51,9 +51,16 @@
       <origin xyz="${-tool_diameter/2} ${tool_diameter/2} 0" rpy="${pi/2} 0 0"/>
       <geometry><mesh filename="package://mas248_ur5e/meshes/spindle.STL" scale="${mesh_scale}"/></geometry>
     </visual>
-    <collision>  <!-- enkel sylinder; tilpass radius -->
-      <origin xyz="0 0 ${tool_length/2}" rpy="0 0 0"/>
-      <geometry><cylinder radius="${tool_diameter/2}" length="${tool_length}"/></geometry>
+    <!-- Kollisjon tilpasset spindle.STL (malt i spindel-rammen, mm): pennen er D15 ved y=-40,
+         z 0..43; selve verktoykroppen er 46.5 x 86.5 mm (x, y = -63.2..23.2) for z 43..148.
+         2 mm margin. Nederste 10 mm av pennen er utelatt, ellers blir tegning paa papiret "kollisjon". -->
+    <collision>  <!-- verktoykropp -->
+      <origin xyz="0 -0.020 0.0955" rpy="0 0 0"/>
+      <geometry><box size="0.0505 0.0905 0.109"/></geometry>
+    </collision>
+    <collision>  <!-- penn (uten de nederste 10 mm) -->
+      <origin xyz="0 -0.040 0.0265" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.0095" length="0.033"/></geometry>
     </collision>
   </link>
 
@@ -98,21 +105,75 @@
     <origin xyz="0 0 ${pedestal_height}" rpy="0 0 0"/>
   </xacro:ur_robot>
 
-  <!-- Simple work table FOR FUN and LEARNING-->
+  <!-- Arbeidsbord: IRL ligger bordplata i samme hoyde som gulvet pedestalen staar paa (z = 0).
+       Endre table_* hvis bordets plassering/storrelse i labben er annerledes (mal fra pedestalens senter). -->
+  <xacro:property name="table_size_x" value="1.20"/>
+  <xacro:property name="table_size_y" value="0.80"/>
+  <xacro:property name="table_thickness" value="0.05"/>
+  <xacro:property name="table_center_x" value="0.85"/>
+  <xacro:property name="table_top_z" value="0.0"/>
   <link name="table_link">
     <visual>
-      <origin xyz="0.85 0 0.40" rpy="0 0 0"/>
-      <geometry><box size="1.20 0.80 0.05"/></geometry>
+      <origin xyz="${table_center_x} 0 ${table_top_z - table_thickness/2}" rpy="0 0 0"/>
+      <geometry><box size="${table_size_x} ${table_size_y} ${table_thickness}"/></geometry>
       <material name="table"><color rgba="0.75 0.75 0.78 1.0"/></material>
     </visual>
     <collision>
-      <origin xyz="0.85 0 0.40" rpy="0 0 0"/>
-      <geometry><box size="1.20 0.80 0.05"/></geometry>
+      <origin xyz="${table_center_x} 0 ${table_top_z - table_thickness/2}" rpy="0 0 0"/>
+      <geometry><box size="${table_size_x} ${table_size_y} ${table_thickness}"/></geometry>
     </collision>
   </link>
   <joint name="world_to_table" type="fixed">
     <parent link="world"/>
     <child link="table_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- A4-ark (kun visuelt, ingen kollisjon: pennen skal tegne paa det). Liggende: lang side langs world Y.
+       PAA LAB: maal arkets senter med pennetuppen (tf2_echo world tcp) og sett paper_center_x/y (og paper_yaw).
+       Bruk SAMME verdier i image_to_targets (center-x, center-y, yaw-deg, og center-z = table_top_z + ca. 0.001). -->
+  <xacro:property name="paper_center_x" value="0.4885"/>
+  <xacro:property name="paper_center_y" value="0.0"/>
+  <xacro:property name="paper_yaw" value="0.0"/>
+  <link name="a4_paper">
+    <visual>
+      <origin xyz="0 0 0.00025" rpy="0 0 0"/>
+      <geometry><box size="0.210 0.297 0.0005"/></geometry>
+      <material name="paper"><color rgba="1.0 1.0 1.0 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="table_to_a4_paper" type="fixed">
+    <parent link="table_link"/>
+    <child link="a4_paper"/>
+    <origin xyz="${paper_center_x} ${paper_center_y} ${table_top_z}" rpy="0 0 ${paper_yaw}"/>
+  </joint>
+
+  <!-- Arbeidsomraade: to virtuelle vegger sideveis (world Y), 60 cm til hver side av roboten (120 cm totalt).
+       MoveIt ser veggene som hindringer, saa INGEN del av roboten eller verktoyet planlegges utenfor.
+       De er gjennomsiktige i RViz og finnes ikke fysisk. -->
+  <xacro:property name="workspace_width" value="1.20"/>
+  <xacro:property name="wall_thickness" value="0.02"/>
+  <xacro:property name="wall_x_min" value="-0.50"/>
+  <xacro:property name="wall_x_max" value="1.45"/>
+  <xacro:property name="wall_height" value="1.50"/>
+  <xacro:macro name="workspace_wall" params="side">
+    <visual>
+      <origin xyz="${(wall_x_min + wall_x_max)/2} ${side*(workspace_width/2 + wall_thickness/2)} ${wall_height/2}" rpy="0 0 0"/>
+      <geometry><box size="${wall_x_max - wall_x_min} ${wall_thickness} ${wall_height}"/></geometry>
+      <material name="workspace_wall"><color rgba="1.0 0.3 0.2 0.15"/></material>
+    </visual>
+    <collision>
+      <origin xyz="${(wall_x_min + wall_x_max)/2} ${side*(workspace_width/2 + wall_thickness/2)} ${wall_height/2}" rpy="0 0 0"/>
+      <geometry><box size="${wall_x_max - wall_x_min} ${wall_thickness} ${wall_height}"/></geometry>
+    </collision>
+  </xacro:macro>
+  <link name="workspace_walls">
+    <xacro:workspace_wall side="1"/>
+    <xacro:workspace_wall side="-1"/>
+  </link>
+  <joint name="world_to_workspace_walls" type="fixed">
+    <parent link="world"/>
+    <child link="workspace_walls"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 

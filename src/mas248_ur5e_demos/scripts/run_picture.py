@@ -43,23 +43,76 @@ def end_joints(joint_trajectory):
 def stroke_waypoints(poses, approach):
     return ([to_pose(p) for p in poses]+[to_pose(poses[-1],approach)])
 
-def plan_stroke(node, poses, approach, start, args):
+def joint_jump(joint_trajectory):
+    """Largest single-joint change between two consecutive trajectory points (rad)."""
+    pts=joint_trajectory.points
+    return max((max(abs(a-b) for a,b in zip(p.positions,q.positions)) for p,q in zip(pts,pts[1:])),default=0.0)
+
+def plan_home(node, start, args, lift_from=None, lift=0.15):
+    """PLAN ONLY a move to HOME from joint state `start` (None = current).
+
+    From the last stroke the pen first rises `lift` metres straight up (Cartesian, same IK
+    branch) so OMPL does not start squeezed between table and arm, then OMPL plans to HOME.
+    OMPL is random and sometimes gives up (MoveItErrorCodes 99999 / -1), so it is retried
+    up to --attempts times. Returns (trajectories, end joints)."""
+    log=node.get_logger();trajs=[]
+    if lift_from is not None:
+        up=Pose();up.position.x=lift_from.position.x;up.position.y=lift_from.position.y
+        up.position.z=lift_from.position.z+lift;up.orientation=lift_from.orientation
+        res=cartesian(node,[lift_from,up],max_step=args.max_step,jump_threshold=args.jump_threshold,
+                      start_joint_positions=start)
+        if res.fraction>=args.min_fraction and joint_jump(res.solution.joint_trajectory)<=getattr(args,'max_joint_jump',0.3):
+            trajs.append(res.solution);start=end_joints(res.solution.joint_trajectory) or start
+        else:
+            log.warn(f'Lift before home only {res.fraction:.1%}; planning home directly')
+    last=None
+    for attempt in range(1,args.attempts+1):
+        try:
+            home=move_group(node,joints=HOME,execute=False,start_joint_positions=start).planned_trajectory
+            if home.joint_trajectory.points:trajs.append(home)
+            return trajs,end_joints(home.joint_trajectory) or start
+        except RuntimeError as exc:
+            last=exc;log.warn(f'Home attempt {attempt}/{args.attempts} failed ({exc}); retrying')
+    raise RuntimeError(f'Could not plan to HOME after {args.attempts} attempts: {last}')
+
+def plan_stroke(node, poses, approach, start, args, travel_from=None):
     """PLAN ONLY one stroke from joint state `start` (None = current).
 
-    MoveGroup picks a random IK branch for the approach pose, and some branches cannot
-    follow the whole contour, so the approach is re-planned up to --attempts times.
+    Approach: if `travel_from` (the lifted end pose of the previous stroke) is given, the
+    pen first travels in a straight Cartesian line at lift height to above this stroke's
+    start. Cartesian IK is seeded with the current joints, so the arm stays on the same
+    IK branch: no wrist spins / 'dance' between strokes. Only if that fails (or for the
+    first stroke) is the approach planned with OMPL (MoveGroup pose goal, random IK branch,
+    re-planned up to --attempts times).
+    Every Cartesian part is rejected if one joint jumps more than --max-joint-jump between
+    two points (MoveIt's own jump test is off, see --jump-threshold).
     Returns (trajectories to execute, end joints)."""
+    log=node.get_logger()
+    max_jump=getattr(args,'max_joint_jump',0.3)
+    above_pose=to_pose(poses[0],approach)
     best=0.0
     for attempt in range(1,args.attempts+1):
-        above=move_group(node,pose=to_pose(poses[0],approach),execute=False,start_joint_positions=start)
-        after_approach=end_joints(above.planned_trajectory.joint_trajectory) or start
+        trajs=[];after_approach=None
+        if travel_from is not None and attempt==1:
+            travel=cartesian(node,[travel_from,above_pose],max_step=args.max_step,
+                             jump_threshold=args.jump_threshold,start_joint_positions=start)
+            jump=joint_jump(travel.solution.joint_trajectory)
+            if travel.fraction>=args.min_fraction and jump<=max_jump:
+                trajs=[travel.solution]
+                after_approach=end_joints(travel.solution.joint_trajectory) or start
+            else:
+                log.warn(f'Cartesian travel {travel.fraction:.1%} (max joint jump {jump:.2f} rad); using OMPL approach')
+        if not trajs:
+            above=move_group(node,pose=above_pose,execute=False,start_joint_positions=start)
+            after_approach=end_joints(above.planned_trajectory.joint_trajectory) or start
+            trajs=[t for t in (above.planned_trajectory,) if t.joint_trajectory.points]
         result=cartesian(node,stroke_waypoints(poses,approach),max_step=args.max_step,
                          jump_threshold=args.jump_threshold,start_joint_positions=after_approach)
-        if result.fraction>=args.min_fraction:
-            trajs=[t for t in (above.planned_trajectory,) if t.joint_trajectory.points]+[result.solution]
-            return trajs,end_joints(result.solution.joint_trajectory)
+        jump=joint_jump(result.solution.joint_trajectory)
+        if result.fraction>=args.min_fraction and jump<=max_jump:
+            return trajs+[result.solution],end_joints(result.solution.joint_trajectory)
         best=max(best,result.fraction)
-        node.get_logger().warn(f'Attempt {attempt}: Cartesian path {result.fraction:.1%}, re-planning approach')
+        log.warn(f'Attempt {attempt}: Cartesian path {result.fraction:.1%}, max joint jump {jump:.2f} rad; re-planning approach')
     raise RuntimeError(f'Cartesian path at best {best:.1%} complete after {args.attempts} attempts; '
                        'move/shrink the image (--center-*, --width-m) and regenerate targets')
 
@@ -75,6 +128,7 @@ def main():
     ap.add_argument('--jump-threshold',type=float,default=0.0,help='Relative joint jump limit, 0 = off')
     ap.add_argument('--min-fraction',type=float,default=0.999,help='Required Cartesian completion')
     ap.add_argument('--attempts',type=int,default=5,help='Approach re-plans per stroke before giving up')
+    ap.add_argument('--max-joint-jump',type=float,default=0.3,help='Reject Cartesian paths where a joint moves more than this (rad) between two points')
     ap.add_argument('--no-home',action='store_true',help='Skip moving to the home joint pose first')
     args=ap.parse_args()
     approach=args.approach_mm/1000.
@@ -87,16 +141,17 @@ def main():
         # execute exactly those trajectories (re-planning could pick another IK branch).
         plan=[];start=None
         if not args.no_home:
-            home=move_group(node,joints=HOME,execute=False).planned_trajectory
-            if home.joint_trajectory.points:plan.append(home)
-            start=end_joints(home.joint_trajectory) or start
+            trajs,start=plan_home(node,None,args)
+            plan+=trajs
+        travel_from=None
         for i,poses in enumerate(strokes,1):
             log.info(f'Preflight stroke {i}/{len(strokes)} ({len(poses)} points)')
-            trajs,start=plan_stroke(node,poses,approach,start,args)
+            trajs,start=plan_stroke(node,poses,approach,start,args,travel_from)
+            travel_from=to_pose(poses[-1],approach)
             plan+=trajs
         if not args.no_home:
-            back=move_group(node,joints=HOME,execute=False,start_joint_positions=start).planned_trajectory
-            if back.joint_trajectory.points:plan.append(back)
+            trajs,start=plan_home(node,start,args,lift_from=travel_from)
+            plan+=trajs
         log.info(f'Preflight OK: all strokes plan completely ({len(plan)} trajectories)')
         if not args.execute:
             log.warn('PLAN ONLY: the robot did not move. Run with --execute for mock drawing.')
