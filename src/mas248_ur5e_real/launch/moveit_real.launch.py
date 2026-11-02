@@ -42,6 +42,8 @@ def setup(context,*args,**kwargs):
     if LaunchConfiguration('launch_rviz').perform(context).lower()=='true':
         nodes.append(Node(package='rviz2',executable='rviz2',output='screen',
                           parameters=[params],
+                          # MAS248: Norwegian locale (decimal comma) breaks the MotionPlanning plugin
+                          additional_env={'LC_NUMERIC':'C'},
                           arguments=['-d',str(l9_config()/'mas248_moveit.rviz')]))
     return nodes
 
