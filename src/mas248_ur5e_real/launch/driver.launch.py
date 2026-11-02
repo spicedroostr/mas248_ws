@@ -19,6 +19,16 @@ FORWARD = tuple(DRIVER_DEFAULTS)
 HARDWARE_XACRO = set(HARDWARE_DEFAULTS)
 DEFAULTS = DRIVER_DEFAULTS
 
+def _update_rate():
+    import yaml
+    for f in (share('ur_robot_driver') / 'config' / 'ur5e_update_rate.yaml',
+              Path(__file__).resolve().parent.parent / 'config' / 'ur5e_update_rate.yaml'):
+        try:
+            return str(yaml.safe_load(f.read_text())['controller_manager']['ros__parameters']['update_rate'])
+        except Exception:
+            pass
+    return '500'
+
 def setup(context, *args, **kwargs):
     ip = validate_ip(LaunchConfiguration('robot_ip').perform(context))
     cal = validate_calibration(LaunchConfiguration('calibration').perform(context))
@@ -53,6 +63,8 @@ def setup(context, *args, **kwargs):
         'initial_joint_controller':ctl,
         'activate_joint_controller':LaunchConfiguration('enable_execution').perform(context),
         'launch_rviz':'false',
+        # '$(var update_rate)' in ur_controllers.yaml: older Humble drivers do not define it themselves
+        'update_rate':_update_rate(),
         **settings,
     }
     return [IncludeLaunchDescription(PythonLaunchDescriptionSource(str(vendor_launch)),
