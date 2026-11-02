@@ -4,7 +4,8 @@ For every stroke: free-space move to a point above its start (MoveGroup), then o
 Cartesian path down to the drawing height, along all sampled points and back up.
 All strokes are preflighted in PLAN ONLY mode first, chained from each plan's end
 state; nothing moves unless every stroke plans completely (L9 guide: "do not
-execute partial plans"). Execution is for the bundled MOCK controllers only.
+execute partial plans"). --execute then runs exactly the preflighted trajectories
+on the bundled MOCK controllers only.
 """
 import argparse
 import json
@@ -43,23 +44,24 @@ def stroke_waypoints(poses, approach):
     return ([to_pose(p) for p in poses]+[to_pose(poses[-1],approach)])
 
 def plan_stroke(node, poses, approach, start, args):
-    """PLAN ONLY one stroke from joint state `start` (None = current). Returns its end joints."""
-    above=move_group(node,pose=to_pose(poses[0],approach),execute=False,start_joint_positions=start)
-    after_approach=end_joints(above.planned_trajectory.joint_trajectory) or start
-    result=cartesian(node,stroke_waypoints(poses,approach),max_step=args.max_step,
-                     start_joint_positions=after_approach)
-    if result.fraction<args.min_fraction:
-        raise RuntimeError(f'Cartesian path only {result.fraction:.1%} complete; '
-                           'move/shrink the image (--center-*, --width-m) and regenerate targets')
-    return end_joints(result.solution.joint_trajectory)
+    """PLAN ONLY one stroke from joint state `start` (None = current).
 
-def draw_stroke(node, poses, approach, args):
-    """Move above the stroke, then execute its Cartesian path from the current (mock) state."""
-    move_group(node,pose=to_pose(poses[0],approach),execute=True)
-    result=cartesian(node,stroke_waypoints(poses,approach),max_step=args.max_step)
-    if result.fraction<args.min_fraction:
-        raise RuntimeError(f'Cartesian path only {result.fraction:.1%} complete at execution; stopping')
-    execute_trajectory(node,result.solution)
+    MoveGroup picks a random IK branch for the approach pose, and some branches cannot
+    follow the whole contour, so the approach is re-planned up to --attempts times.
+    Returns (trajectories to execute, end joints)."""
+    best=0.0
+    for attempt in range(1,args.attempts+1):
+        above=move_group(node,pose=to_pose(poses[0],approach),execute=False,start_joint_positions=start)
+        after_approach=end_joints(above.planned_trajectory.joint_trajectory) or start
+        result=cartesian(node,stroke_waypoints(poses,approach),max_step=args.max_step,
+                         jump_threshold=args.jump_threshold,start_joint_positions=after_approach)
+        if result.fraction>=args.min_fraction:
+            trajs=[t for t in (above.planned_trajectory,) if t.joint_trajectory.points]+[result.solution]
+            return trajs,end_joints(result.solution.joint_trajectory)
+        best=max(best,result.fraction)
+        node.get_logger().warn(f'Attempt {attempt}: Cartesian path {result.fraction:.1%}, re-planning approach')
+    raise RuntimeError(f'Cartesian path at best {best:.1%} complete after {args.attempts} attempts; '
+                       'move/shrink the image (--center-*, --width-m) and regenerate targets')
 
 def main():
     ap=argparse.ArgumentParser(description='Draw image targets with MoveIt. Default PLAN ONLY (preflight).')
@@ -68,7 +70,11 @@ def main():
     ap.add_argument('--approach-mm',type=float,default=50.,help='Lift above stroke start/end (default 50 mm)')
     ap.add_argument('--stroke',type=int,default=None,help='Draw only stroke N (1-based)')
     ap.add_argument('--max-step',type=float,default=0.005,help='Cartesian interpolation step in metres')
+    # MoveGroup only reaches the approach pose within 8 mm / 0.1 rad, so the first Cartesian
+    # step corrects that error and Humble's relative jump test (e.g. 1.5) cuts the path there.
+    ap.add_argument('--jump-threshold',type=float,default=0.0,help='Relative joint jump limit, 0 = off')
     ap.add_argument('--min-fraction',type=float,default=0.999,help='Required Cartesian completion')
+    ap.add_argument('--attempts',type=int,default=5,help='Approach re-plans per stroke before giving up')
     ap.add_argument('--no-home',action='store_true',help='Skip moving to the home joint pose first')
     args=ap.parse_args()
     approach=args.approach_mm/1000.
@@ -77,22 +83,27 @@ def main():
     try:
         strokes=load_strokes(args.json,args.stroke)
         log.info(f'{len(strokes)} stroke(s), {sum(map(len,strokes))} points from {args.json}')
-        # Preflight: chain every plan from the previous plan's end state.
-        start=None
+        # Preflight: plan everything chained from the previous plan's end state, then
+        # execute exactly those trajectories (re-planning could pick another IK branch).
+        plan=[];start=None
         if not args.no_home:
-            start=end_joints(move_group(node,joints=HOME,execute=False).planned_trajectory.joint_trajectory) or HOME
+            home=move_group(node,joints=HOME,execute=False).planned_trajectory
+            if home.joint_trajectory.points:plan.append(home)
+            start=end_joints(home.joint_trajectory) or start
         for i,poses in enumerate(strokes,1):
             log.info(f'Preflight stroke {i}/{len(strokes)} ({len(poses)} points)')
-            start=plan_stroke(node,poses,approach,start,args)
-        log.info('Preflight OK: all strokes plan completely')
+            trajs,start=plan_stroke(node,poses,approach,start,args)
+            plan+=trajs
+        if not args.no_home:
+            back=move_group(node,joints=HOME,execute=False,start_joint_positions=start).planned_trajectory
+            if back.joint_trajectory.points:plan.append(back)
+        log.info(f'Preflight OK: all strokes plan completely ({len(plan)} trajectories)')
         if not args.execute:
             log.warn('PLAN ONLY: the robot did not move. Run with --execute for mock drawing.')
             return
-        if not args.no_home: move_group(node,joints=HOME,execute=True)
-        for i,poses in enumerate(strokes,1):
-            log.info(f'Drawing stroke {i}/{len(strokes)}')
-            draw_stroke(node,poses,approach,args)
-        if not args.no_home: move_group(node,joints=HOME,execute=True)
+        for k,traj in enumerate(plan,1):
+            log.info(f'Executing trajectory {k}/{len(plan)}')
+            execute_trajectory(node,traj)
         log.info('Picture finished')
     except Exception as exc:
         log.error(str(exc));raise
