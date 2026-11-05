@@ -34,7 +34,11 @@ def setup(context,*args,**kwargs):
     params['trajectory_execution.allowed_execution_duration_scaling']=2.0
     params['trajectory_execution.allowed_goal_duration_margin']=1.0
     params['trajectory_execution.allowed_start_tolerance']=0.02
-    # Execution-duration monitoring is valid with scaled control: do not disable casually.
+    # MAS248: scaled_joint_trajectory_controller slows the trajectory down with the pendant speed
+    # slider (10-20 % on lab => 5-10x planned time). MoveIt's duration monitoring does not know
+    # about that and aborts with TIMED_OUT (-6). UR's own ur_moveit_config turns it off too.
+    # Safety is the pendant (slider, protective/E-stop) and the controller's own path tolerances.
+    params['trajectory_execution.execution_duration_monitoring']=False
     params['robot_description']=ParameterValue(desc,value_type=str)
     params['robot_description_semantic']=ParameterValue(params['robot_description_semantic'],value_type=str)
     nodes=[Node(package='moveit_ros_move_group',executable='move_group',output='screen',

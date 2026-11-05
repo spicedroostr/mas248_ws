@@ -145,8 +145,12 @@ def execute(node, traj, recorder, index):
         recorder.active_traj = 0
     wall = time.monotonic() - t0
     if result.error_code.val != MoveItErrorCodes.SUCCESS:
-        raise RuntimeError(f'Trajectory {index} failed, MoveItErrorCodes={result.error_code.val} '
-                           '(-4 = CONTROL_FAILED: check pendant, protective stop, program running)')
+        hints = {-4: 'CONTROL_FAILED: check pendant, protective stop, program running',
+                 -6: 'TIMED_OUT: robot slower than planned (speed slider) or not moving '
+                     '(External Control program not playing)'}
+        code = result.error_code.val
+        raise RuntimeError(f'Trajectory {index} failed after {time.monotonic() - t0:.1f} s, '
+                           f'MoveItErrorCodes={code} ({hints.get(code, "see move_group log")})')
     return wall
 
 
