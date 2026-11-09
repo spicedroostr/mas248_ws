@@ -169,6 +169,8 @@ def main():
     ap.add_argument('--min-fraction', type=float, default=0.999)
     ap.add_argument('--attempts', type=int, default=5)
     ap.add_argument('--max-joint-jump', type=float, default=0.25)
+    ap.add_argument('--max-joint-travel', type=float, default=3.3,
+                    help='Reject free-space plans where one joint turns more than this (rad); 0 = off')
     ap.add_argument('--no-home', action='store_true')
     ap.add_argument('--skip-stack-check', action='store_true', help='Planning only: skip live driver checks')
     ap.add_argument('--log-dir', default=str(Path.home() / 'mas248_runs'))

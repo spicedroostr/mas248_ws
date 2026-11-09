@@ -24,12 +24,14 @@ Gruppa bruker **ROS_DOMAIN_ID=57** overalt. Verdien 48 i L10-slidene er bare en 
 
 ---
 
+> **Testet i URSim 2026-11-05:** hele løypa (driver, MoveIt, preflight, `--execute` på hele Ubuntu-logoen) virker mot URSim, se `kjoreguide_ursim.md` i prosjektmappa. Rettelser fra den testen er tatt med under: `chmod +x` etter hver endring, TCP/payload-verdier, ingen tidsavbrudd ved lav slider (`execution_duration_monitoring` av) og nye forsøk når OMPL-tilnærmingen feiler.
+
 ## 0. Hjemme, én gang: avhengigheter, kalibrering og bygg
 
 ```bash
 sudo apt install ros-humble-ur          # ur_robot_driver, ur_description, ur_calibration, ur_client_library
 cp ~/Nedlastinger/ur5e_calibration.yaml ~/ur5e_calibration.yaml
-chmod +x ~/mas248_ws/src/mas248_ur5e_real/scripts/*.py   # nødvendig med --symlink-install
+chmod +x ~/mas248_ws/src/mas248_ur5e_real/scripts/*.py   # nødvendig med --symlink-install, og på nytt etter hver git pull/oppdatering
 
 source /opt/ros/humble/setup.bash
 cd ~/mas248_ws
@@ -73,7 +75,9 @@ sudo ufw allow 50001:50004/tcp
 1. Sjekk robotens IP under *Settings → System → Network*: statisk, 192.168.10.101, maske 255.255.255.0 (labroboten er satt slik; L10-slidene sier 192.168.1.101, men ikke endre roboten, tilpass PC-en).
 2. Sjekk at URCap-en **External Control** er installert (*Settings → System → URCaps*). Under *Installation → URCaps → External Control*: Host IP **192.168.10.102**, port **50002**.
 3. Lag (eller last inn) et program som bare inneholder noden *External Control*. Lagre det, for eksempel som `mas248_ros.urp`.
-4. Under *Installation → General → TCP/Payload*: sett payload til omtrent vekten av verktøyet (spindel og tusj). Feil payload gir unødvendige protective stops.
+4. *Installation → General → TCP*: lag TCP `penn` (+), X **0.0**, Y **94.0**, Z **63.3** mm, Units *Rotation Vector [rad]*: RX **0.0000**, RY **2.2214**, RZ **2.2214**. Sett den som standard (grønt merke). Dette er `tool0 → tcp` fra workcell-xacroen. ROS bruker sin egen TCP, så pendant-TCP-en brukes bare til å sammenligne posisjon (pendanten mot `tf2_echo world tcp`) og til payload.
+   *Installation → General → Payload*: vekten av spindel + tusj (vei den; ellers ca. 0.5 kg), tyngdepunkt CX/CY/CZ ≈ **0 / −1.5 / 43** mm. Feil payload gir unødvendige protective stops. PolyScope tar ikke inn STL; verktøygeometrien finnes bare i URDF/MoveIt.
+   Lagre installasjonen (*Save → Save Installation*). Ta gjerne en kopi av `.installation` og `.urp` på minnepinne til URSim.
 5. Sett hastighetsslideren nederst på skjermen til **10–20 %**.
 6. Sjekk at roboten er slått på, bremsene er sluppet (*Normal*) og at nødstoppen er tilgjengelig for den som står ved roboten.
 
@@ -256,7 +260,7 @@ Gjør pumpkin først (L10 minimumseksperiment), deretter Ubuntu-logoen. Kjør sa
 |---|---|
 | `Explicit acknowledge_hardware:=yes required` | Glemt argumentet i fane 1. |
 | Feil om kalibrering / filen finnes ikke | Bruk full sti: `calibration:="$HOME/ur5e_calibration.yaml"`. |
-| `The calibration parameters of the connected robot don't match the ones from the given kinematics config file` | Kalibreringsfila er fra en annen robot. Lag en ny fra denne roboten: `ros2 launch ur_calibration calibration_correction.launch.py robot_ip:=192.168.10.101 target_filename:="$HOME/ur5e_calibration.yaml"`, bygg og start på nytt. |
+| `The calibration parameters of the connected robot don't match the ones from the given kinematics config file` | Kalibreringsfila er fra en annen robot. Lag en ny fra denne roboten: `ros2 launch ur_calibration calibration_correction.launch.py robot_ip:=192.168.10.101 target_filename:="$HOME/ur5e_calibration.yaml"`, bygg og start på nytt. NB: mot URSim hang dette verktøyet på «Stream is invalid»; skjer det på lab også, bruk Canvas-fila og spør faglærer. |
 | Spawner timeout / `Could not contact service /controller_manager/...` | Gamle prosesser fra mock. Gjør punkt 3 (rydd opp) og start på nytt. |
 | `validate_stack`: `robot_program_running is not true` | Trykk Play på pendanten (etter at driveren kjører). |
 | `validate_stack --execution`: `scaled_joint_trajectory_controller active (state: inactive)` | Fane 1 ble startet med `enable_execution:=false`. Start på nytt med `true` (punkt 7). |
@@ -270,13 +274,15 @@ Gjør pumpkin først (L10 minimumseksperiment), deretter Ubuntu-logoen. Kjør sa
 | RViz uten MotionPlanning eller feilen *"double -> string"* | Skal være fikset (LC_NUMERIC=C i launch-fila). Bygg på nytt hvis den fortsatt dukker opp. |
 | `Start state is in collision` / `Found a contact between 'tcp'/'spindle' and 'table_link'` | Bordet i modellen ligger for høyt i forhold til målt arkhøyde. Sett `table_top_z = z_papir − 0.003` (punkt 5) og bygg på nytt. Mot `workspace_walls`: arket eller roboten står for nær kanten av 120 cm-sonen. |
 | Kartesisk bane `fraction < 0.999` eller `joint jump` | Målet er utenfor rekkevidde eller nær en singularitet. Flytt senteret nærmere roboten (mindre x) eller reduser `--width-m`. |
-| `MoveItErrorCodes=99999` eller `-1` | OMPL er tilfeldig. Skriptet prøver hjem-banen opptil 5 ganger. Feiler det fortsatt, kjør kommandoen på nytt. |
+| `MoveItErrorCodes=99999`, `-1` eller `-2` | OMPL er tilfeldig. Skriptet prøver hjem-banen og tilnærmingen til hvert strøk opptil 5 ganger (`Attempt n: ... re-planning`). Feiler det fortsatt, kjør kommandoen på nytt. |
 | Tegningen havner på feil sted i RViz | `show_targets_rviz` viser gammel fil. Ctrl+C og start den på nytt etter ny `image_to_targets`. |
 
 ### D. Utførelse på den ekte roboten
 
 | Symptom | Årsak og løsning |
 |---|---|
+| `No executable found` ved `ros2 run mas248_ur5e_real ...` | Skriptet har mistet kjør-rettigheten: `chmod +x ~/mas248_ws/src/mas248_ur5e_real/scripts/*.py`. |
+| `MoveItErrorCodes=-6` (TIMED_OUT) | Skal være fikset (tidsovervåkingen i `moveit_real.launch.py` er av, fordi slideren gjør banene tregere enn planlagt). Kommer den likevel: start fane 2 på nytt så den nye launch-fila brukes, og sjekk at programmet står på Play. |
 | `Start state deviates` / `start tolerance` | Roboten er flyttet (freedrive) etter planleggingen. Kjør skriptet på nytt, det planlegger fra den nye stillingen. |
 | MoveIt `CONTROL_FAILED` eller bane avbrytes med en gang | Programmet på pendanten er stoppet, eller slideren står på 0 %. Trykk Play og sjekk slideren. |
 | Roboten går veldig sakte eller stopper litt | Normalt med lav slider: `scaled_joint_trajectory_controller` skalerer tiden. Skru opp slideren gradvis (maks ca. 50 % på lab). |
@@ -287,4 +293,4 @@ Gjør pumpkin først (L10 minimumseksperiment), deretter Ubuntu-logoen. Kjør sa
 
 ## Hva er ikke testet
 
-Skriptene er testet offline (xacro-generering og -rendering mot `ur_description` for Humble) og planleggingen i mock. Kjøring mot en ekte robot er ikke testet. Står det `not supported by installed macro, ignored: ...` i colcon-loggen, er `ros-humble-ur` gammel, og da bør dere kjøre `sudo apt upgrade`.
+Skriptene er testet offline, i mock og mot URSim (2026-11-05: driver, External Control, preflight og `--execute` av hele Ubuntu-logoen). Kjøring mot den ekte roboten (nettverk, kalibrering, kontakt med papiret) er ikke testet ennå. Står det `not supported by installed macro, ignored: ...` i colcon-loggen, er `ros-humble-ur` gammel, og da bør dere kjøre `sudo apt upgrade`.
